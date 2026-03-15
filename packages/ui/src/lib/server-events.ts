@@ -18,6 +18,7 @@ class ServerEvents {
   private handlers = new Map<WorkspaceEventType | "*", Set<(event: WorkspaceEventPayload) => void>>()
   private source: EventSource | null = null
   private retryDelay = RETRY_BASE_DELAY
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor() {
     this.connect()
@@ -26,6 +27,12 @@ class ServerEvents {
   private connect() {
     if (this.source) {
       this.source.close()
+      this.source = null
+    }
+    // Cancel any pending reconnect when an explicit connect is initiated
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
     }
     logSse("Connecting to backend events stream")
     this.source = serverApi.connectEvents((event) => this.dispatch(event), () => this.scheduleReconnect())
@@ -40,11 +47,16 @@ class ServerEvents {
       this.source.close()
       this.source = null
     }
-    logSse("Events stream disconnected, scheduling reconnect", { delayMs: this.retryDelay })
-    setTimeout(() => {
+    // Guard against duplicate reconnect timers (rapid disconnect/onerror)
+    if (this.reconnectTimer !== null) return
+    const jitter = Math.random() * 500
+    const delay = this.retryDelay + jitter
+    logSse("Events stream disconnected, scheduling reconnect", { delayMs: delay })
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
       this.retryDelay = Math.min(this.retryDelay * 2, RETRY_MAX_DELAY)
       this.connect()
-    }, this.retryDelay)
+    }, delay)
   }
 
   private dispatch(event: WorkspaceEventPayload) {
