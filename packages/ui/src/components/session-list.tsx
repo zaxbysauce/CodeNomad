@@ -1,4 +1,5 @@
 import { Component, For, Show, createSignal, createMemo, createEffect, JSX, onCleanup } from "solid-js"
+import VirtualItem from "./virtual-item"
 import type { SessionStatus } from "../types/session"
 import type { SessionThread } from "../stores/session-state"
 import { getSessionStatus } from "../stores/session-status"
@@ -689,17 +690,33 @@ const SessionList: Component<SessionListProps> = (props) => {
                  const expanded = () => (normalizedQuery() ? true : isSessionParentExpanded(props.instanceId, thread.parent.id))
                  return (
                    <>
-                       <SessionRow
-                         sessionId={thread.parent.id}
-                         hasChildren={thread.children.length > 0}
-                         expanded={expanded()}
-                         onToggleExpand={() => toggleSessionParentExpanded(props.instanceId, thread.parent.id)}
-                       />
+                     <VirtualItem
+                       cacheKey={`session-row-${thread.parent.id}`}
+                       scrollContainer={listEl[0]}
+                       minPlaceholderHeight={56}
+                     >
+                       {() => (
+                         <SessionRow
+                           sessionId={thread.parent.id}
+                           hasChildren={thread.children.length > 0}
+                           expanded={expanded()}
+                           onToggleExpand={() => toggleSessionParentExpanded(props.instanceId, thread.parent.id)}
+                         />
+                       )}
+                     </VirtualItem>
 
                      <Show when={expanded() && thread.children.length > 0}>
                        <For each={thread.children}>
                          {(child, index) => (
-                           <SessionRow sessionId={child.id} isChild isLastChild={index() === thread.children.length - 1} />
+                           <VirtualItem
+                             cacheKey={`session-row-${child.id}`}
+                             scrollContainer={listEl[0]}
+                             minPlaceholderHeight={56}
+                           >
+                             {() => (
+                               <SessionRow sessionId={child.id} isChild isLastChild={index() === thread.children.length - 1} />
+                             )}
+                           </VirtualItem>
                          )}
                        </For>
                      </Show>

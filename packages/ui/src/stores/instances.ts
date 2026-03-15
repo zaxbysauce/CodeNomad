@@ -243,22 +243,31 @@ async function syncPendingQuestions(instanceId: string): Promise<void> {
 
 async function hydrateInstanceData(instanceId: string, options?: { force?: boolean }) {
   try {
-    if (options?.force) {
-      await reloadWorktrees(instanceId)
-      await reloadWorktreeMap(instanceId)
-    } else {
-      await ensureWorktreesLoaded(instanceId)
-      await ensureWorktreeMapLoaded(instanceId)
-    }
-    await fetchSessions(instanceId)
-    await fetchAgents(instanceId)
-    await fetchProviders(instanceId)
-    await ensureInstanceConfigLoaded(instanceId)
+    // Phase A: fetch sessions and supporting data needed to render the sidebar.
+    // client is set by attachClient() before this function is called — capture
+    // it once so fetchCommands can run in parallel without re-reading the signal.
     const instance = instances().get(instanceId)
     if (!instance?.client) return
-    await fetchCommands(instanceId, instance.client)
-    await syncPendingPermissions(instanceId)
-    await syncPendingQuestions(instanceId)
+    const client = instance.client
+
+    await Promise.all([
+      fetchSessions(instanceId),
+      fetchAgents(instanceId),
+      fetchProviders(instanceId),
+      ensureInstanceConfigLoaded(instanceId),
+      fetchCommands(instanceId, client),
+    ])
+
+    // Phase B: worktrees and permission/question sync — not required to render
+    // the session sidebar. Run fire-and-forget so Phase A renders immediately.
+    void Promise.all([
+      options?.force ? reloadWorktrees(instanceId) : ensureWorktreesLoaded(instanceId),
+      options?.force ? reloadWorktreeMap(instanceId) : ensureWorktreeMapLoaded(instanceId),
+      syncPendingPermissions(instanceId),
+      syncPendingQuestions(instanceId),
+    ]).catch((error) => {
+      log.error("Failed to load background instance data", error)
+    })
   } catch (error) {
     log.error("Failed to fetch initial data", error)
   }

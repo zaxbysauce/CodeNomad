@@ -124,7 +124,13 @@ async function fetchSessions(instanceId: string): Promise<void> {
 
   try {
     log.info("session.list", { instanceId })
-    const response = await rootClient.session.list()
+    const [response, statusResponse] = await Promise.all([
+      rootClient.session.list(),
+      rootClient.session.status().catch((error) => {
+        log.error("Failed to fetch session status:", error)
+        return { data: {} as Record<string, any> }
+      }),
+    ])
 
     const sessionMap = new Map<string, Session>()
 
@@ -133,13 +139,8 @@ async function fetchSessions(instanceId: string): Promise<void> {
     }
 
     let statusById: Record<string, any> = {}
-    try {
-        const statusResponse = await rootClient.session.status()
-      if (statusResponse.data && typeof statusResponse.data === "object") {
-        statusById = statusResponse.data as Record<string, any>
-      }
-    } catch (error) {
-      log.error("Failed to fetch session status:", error)
+    if (statusResponse.data && typeof statusResponse.data === "object") {
+      statusById = statusResponse.data as Record<string, any>
     }
 
     const existingSessions = sessions().get(instanceId)
@@ -650,10 +651,15 @@ async function loadMessages(instanceId: string, sessionId: string, force = false
     return next
   })
 
+  // Limit the initial message load to avoid fetching enormous payloads
+  // (sessions with many reasoning blocks or tool outputs can be 100s of MB).
+  // The backend returns the most-recent messages up to this limit.
+  const INITIAL_MESSAGE_LIMIT = 100
+
   try {
     log.info(`[HTTP] GET /session.${"messages"} for instance ${instanceId}`, { sessionId })
     const apiMessages = await requestData<any[]>(
-      client.session.messages({ sessionID: sessionId }),
+      client.session.messages({ sessionID: sessionId, limit: INITIAL_MESSAGE_LIMIT }),
       "session.messages",
     )
 
